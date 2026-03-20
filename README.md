@@ -22,6 +22,8 @@ The system returns:
 - A thumbnail of the relevant screen
 - A clickable link that opens the video **at the exact second** the answer is given
 
+Multiple videos are supported — index as many as you want and query across all of them at once.
+
 ---
 
 ## How it works
@@ -49,7 +51,9 @@ The system returns:
  ─────────────────────────────────────────────────────────────────
  Each Whisper segment is matched to the scene it falls inside
  (by timestamp). The full spoken text for each scene is assembled
- and uploaded to Weaviate as a Scene object.
+ and uploaded to Weaviate as a Scene object, tagged with a
+ video_id. The video's YouTube URL is saved here too, enabling
+ timestamped links in the UI.
      │
      ▼
  4_embed.py
@@ -60,10 +64,12 @@ The system returns:
  These vectors are stored in Weaviate's HNSW index.
      │
      ▼
- rag_server.py / rag_ask.py
+ rag_server.py
  ─────────────────────────────────────────────────────────────────
  At query time, your question is embedded with the same model.
  Weaviate finds the closest scene vectors (cosine similarity).
+ Neighboring scenes are also fetched to capture procedural steps
+ that follow problem-description scenes.
  The top results are passed to a local LLM (llama3.2) which
  synthesizes a concise answer.
  For timestamps, each segment within the winning scene is
@@ -83,7 +89,7 @@ The system returns:
 | [Ollama](https://ollama.com) — `llama3.2`         | Generates the final answer from retrieved context |
 | [Weaviate](https://weaviate.io)                   | Vector database with HNSW cosine index            |
 | FastAPI + Uvicorn                                 | REST API and web server                           |
-| Vanilla JS + Tailwind                             | Chat UI in the browser                            |
+| Vanilla JS                                        | Chat UI in the browser                            |
 
 Everything runs **locally**. Once the video is transcribed, no data leaves your machine.
 
@@ -140,23 +146,25 @@ ollama serve
 
 ## Running the pipeline
 
-Run these scripts once per video, in order:
+Run these four scripts once per video, in order. Everything is namespaced by `--video-id` so multiple videos never conflict.
 
 ```bash
 # Step 1 — Transcribe the video with Whisper
-python 1_transcribe.py
+python 1_transcribe.py --video-path "path/to/video.mp4" --video-id your-video-slug
 
 # Step 2 — Detect scene changes and extract thumbnails
-python 2_scenes.py
+python 2_scenes.py --video-path "path/to/video.mp4" --video-id your-video-slug
 
-# Step 3 — Align transcript to scenes and upload to Weaviate
-python 3_align_and_upload.py --video-id your-video-slug
+# Step 3 — Align transcript to scenes, upload to Weaviate, save YouTube URL
+python 3_align_and_upload.py --video-id your-video-slug --video-url "https://youtube.com/watch?v=..."
 
 # Step 4 — Embed scenes with Ollama and store vectors
 python 4_embed.py --video-id your-video-slug
 ```
 
-Each step builds on the previous one. After step 4, your data is in Weaviate and ready to query.
+Steps 1 and 2 automatically name their output files after the `--video-id`, so you can safely run the pipeline for multiple videos without overwriting anything.
+
+After step 4, your data is in Weaviate and ready to query.
 
 ---
 
@@ -171,17 +179,35 @@ python rag_server.py
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
 - Type your question and press **Ask**
-- Each answer shows the relevant scene thumbnail and transcript snippet
-- Paste your YouTube URL in the **Settings** panel and click **Save** — this enables the **"Open video @ time"** button which jumps to the exact second in the video
+- Each result shows a scene thumbnail, the transcript excerpt, similarity score, and timestamp
+- Click **Open video @ time** to jump to the exact second in the YouTube video
+- Click **Open image** to view the full-resolution frame
+
+The **Settings** panel (top right) lets you manage saved video URLs manually if needed.
 
 ### Command line
 
 ```bash
 python rag_ask.py "How do I connect a column to a level?"
 
-# Retrieve top 5 results, open the best frame image, and jump to the video timestamp
+# Top 5 results, open the best frame, jump to timestamp
 python rag_ask.py "How do I connect a column to a level?" -k 5 --open 1 --open-video 1 --video-url "https://youtube.com/watch?v=YOUR_ID"
 ```
+
+---
+
+## Adding more videos
+
+The pipeline is fully multi-video. Just run all four steps with a new `--video-id` for each video:
+
+```bash
+python 1_transcribe.py --video-path "video2.mp4" --video-id second-video
+python 2_scenes.py     --video-path "video2.mp4" --video-id second-video
+python 3_align_and_upload.py --video-id second-video --video-url "https://youtube.com/watch?v=..."
+python 4_embed.py      --video-id second-video
+```
+
+All videos share the same Weaviate index. Queries automatically search across all of them and each result card shows which video it came from.
 
 ---
 
@@ -200,7 +226,6 @@ rag-video-tutorial/
 ├── web/
 │   └── index.html           # Chat UI
 │
-├── config.py                # Loads settings from .env
 ├── docker-compose.yml       # Weaviate container
 ├── requirements.txt
 ├── .env.example             # Copy to .env and fill in your values
@@ -213,10 +238,11 @@ rag-video-tutorial/
 
 A scene can be 30–90 seconds long. Instead of linking to the start of the scene, the system finds the **exact sentence** that best answers the question:
 
-1. Retrieve the top matching scene via vector search
-2. Fetch all individual Whisper segments (5–10 second chunks) within that scene
-3. Embed each segment with the same Ollama model
-4. Compute cosine similarity between each segment and the query
-5. Return the timestamp of the best-matching segment
+1. Retrieve the top matching scenes via vector search
+2. Fetch neighboring scenes to capture procedural steps that follow problem descriptions
+3. Pass all context to the LLM to synthesize an answer
+4. For the timestamp, fetch all individual Whisper segments within the best scene
+5. Embed each segment and compute cosine similarity against the query
+6. Return the timestamp of the best-matching segment
 
 This means the video link lands within a few seconds of the actual answer.
