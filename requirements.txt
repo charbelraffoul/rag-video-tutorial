@@ -1,0 +1,22 @@
+# Core pipeline
+openai-whisper          # Step 1 — transcription
+opencv-python           # Step 2 — scene detection (SSIM)
+Pillow                  # Step 2 — frame saving
+
+# Weaviate
+weaviate-client         # Step 2/3 — vector store client
+requests                # HTTP calls to Weaviate + Ollama
+
+# Web server
+fastapi
+uvicorn
+
+# Config
+python-dotenv
+
+# Older / optional scripts (2_embed_upload.py, Gemini path)
+sentence-transformers
+google-generativeai
+tiktoken
+nltk
+langchain-community

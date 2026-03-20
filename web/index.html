@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>RAG Video QA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121821; --card:#161e29; --muted:#9fb0c3; --text:#eaf2ff; --accent:#5ea1ff;
+      --border:#223044; --chip:#26374f;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:var(--bg); color:var(--text);
+      display:flex; flex-direction:column;
+    }
+    header{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:14px 18px; background:var(--panel); border-bottom:1px solid var(--border);
+      position:sticky; top:0; z-index:5;
+    }
+    header h1{margin:0; font-size:18px; letter-spacing:.3px}
+    main{max-width:1100px; width:100%; margin:0 auto; padding:18px; gap:14px; display:flex; flex-direction:column; flex:1}
+    .chat{
+      flex:1; overflow:auto; display:flex; flex-direction:column; gap:12px;
+      padding-right:2px;
+    }
+    .msg{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px;}
+    .you{align-self:flex-end; background:#1e2a3b;}
+    .assistant{align-self:flex-start;}
+    .msg .role{font-size:12px; opacity:.8; margin-bottom:6px; color:var(--muted)}
+    .sources{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:10px}
+    .card{background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; display:flex; flex-direction:column}
+    .card img{width:100%; height:150px; object-fit:cover; background:#0a0e14}
+    .card .body{padding:10px; display:flex; flex-direction:column; gap:8px}
+    .meta{display:flex; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--muted)}
+    .chip{background:var(--chip); padding:2px 8px; border-radius:999px; border:1px solid var(--border)}
+    .actions{display:flex; gap:8px; margin-top:6px}
+    .btn{
+      appearance:none; border:1px solid var(--border); background:#1b2432; color:var(--text);
+      padding:8px 12px; border-radius:10px; cursor:pointer;
+    }
+    .btn.primary{background:var(--accent); color:#051123; border-color:#4f8ce0; font-weight:600}
+    .row{display:flex; gap:10px; align-items:center}
+    .row > .grow{flex:1}
+    input[type="text"], input[type="url"], input[type="number"]{
+      width:100%; background:#0f1520; color:var(--text); border:1px solid var(--border); border-radius:10px;
+      padding:10px 12px;
+    }
+    .footer{position:sticky; bottom:0; background:linear-gradient(transparent, var(--bg) 20%); padding-top:8px}
+    .panel{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:12px; display:flex; gap:8px}
+    .muted{color:var(--muted)}
+    details.settings{margin-left:auto}
+    summary{cursor:pointer}
+    a{color:var(--accent); text-decoration:none}
+    a:hover{text-decoration:underline}
+    .small{font-size:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>RAG Video QA</h1>
+    <details class="settings">
+      <summary>Settings</summary>
+      <div style="margin-top:10px; background:var(--panel); padding:10px; border:1px solid var(--border); border-radius:10px; min-width:320px;">
+        <label class="small muted">Video URL (YouTube recommended)</label>
+        <div class="row" style="margin-top:6px">
+          <input id="videoUrlInput" type="url" placeholder="https://www.youtube.com/watch?v=..." />
+          <button class="btn" id="saveVideoUrlBtn">Save</button>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">This is stored in Weaviate (class <code>VideoMeta</code>).</p>
+      </div>
+    </details>
+  </header>
+
+  <main>
+    <div id="chat" class="chat"></div>
+
+    <div class="footer">
+      <div class="panel">
+        <input id="q" type="text" placeholder="Ask about the video…" class="grow" />
+        <input id="limit" type="number" min="1" max="20" value="5" title="Top K" style="width:80px" />
+        <button id="askBtn" class="btn primary">Ask</button>
+      </div>
+      <div class="small muted" style="padding:6px 6px 0">Tip: press Enter to send. Sources include image thumbnails and timestamped video links.</div>
+    </div>
+  </main>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const q    = document.getElementById('q');
+    const askBtn = document.getElementById('askBtn');
+    const limitEl = document.getElementById('limit');
+    const videoUrlInput = document.getElementById('videoUrlInput');
+    const saveVideoUrlBtn = document.getElementById('saveVideoUrlBtn');
+
+    function addMsg(role, html){
+      const div = document.createElement('div');
+      div.className = 'msg ' + (role === 'you' ? 'you' : 'assistant');
+      div.innerHTML = `<div class="role">${role === 'you' ? 'You' : 'Assistant'}</div>${html}`;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function esc(s){ return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) }
+
+    function renderSources(hits){
+      const wrap = document.createElement('div');
+      wrap.className = 'sources';
+      hits.forEach(h=>{
+        const sim = (h.sim==null) ? 'n/a' : h.sim.toFixed(3);
+        const t   = typeof h.timestamp === 'number' ? h.timestamp : 0;
+        const mm  = String(Math.floor(t/60)).padStart(2,'0');
+        const ss  = String(t%60).padStart(2,'0');
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        const img = document.createElement('img');
+        img.alt = 'frame';
+        img.src = h.frame_url || '';
+        card.appendChild(img);
+
+        const body = document.createElement('div');
+        body.className = 'body';
+        const p = document.createElement('div');
+        p.textContent = h.text || '';
+        body.appendChild(p);
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.innerHTML = `
+          <span class="chip">sim: ${sim}</span>
+          <span class="chip">scene: ${h.scene_id ?? '-'}</span>
+          <span class="chip">${mm}:${ss}</span>
+        `;
+        body.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        if (h.frame_url){
+          const aImg = document.createElement('a');
+          aImg.href = h.frame_url; aImg.target = '_blank';
+          aImg.className = 'btn'; aImg.textContent = 'Open image';
+          actions.appendChild(aImg);
+        }
+        if (h.video_link){
+          const aVid = document.createElement('a');
+          aVid.href = h.video_link; aVid.target = '_blank';
+          aVid.className = 'btn'; aVid.textContent = 'Open video @ time';
+          actions.appendChild(aVid);
+        }
+        body.appendChild(actions);
+
+        card.appendChild(body);
+        wrap.appendChild(card);
+      });
+      return wrap;
+    }
+
+    async function ask(){
+      const text = q.value.trim();
+      if(!text) return;
+      const k = Math.max(1, Math.min(20, Number(limitEl.value)||5));
+
+      addMsg('you', esc(text));
+      q.value = '';
+      q.disabled = true; askBtn.disabled = true;
+
+      let data;
+      try{
+        const r = await fetch('/ask', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({query:text, limit:k})
+        });
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        data = await r.json();
+      }catch(e){
+        addMsg('assistant', `<div class="muted">Error: ${esc(String(e))}</div>`);
+        q.disabled = false; askBtn.disabled = false; q.focus();
+        return;
+      }
+
+      const ans = document.createElement('div');
+      ans.innerHTML = `<div style="white-space:pre-wrap">${esc(data.answer||'(no answer)')}</div>`;
+      const sources = renderSources(data.hits||[]);
+      ans.appendChild(sources);
+      addMsg('assistant', ans.innerHTML);
+
+      q.disabled = false; askBtn.disabled = false; q.focus();
+    }
+
+    askBtn.addEventListener('click', ask);
+    q.addEventListener('keydown', e=>{
+      if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); ask(); }
+    });
+
+    async function loadVideoUrl(){
+      try{
+        const r = await fetch('/video-url');
+        if(!r.ok) return;
+        const d = await r.json();
+        if(d && d.url) videoUrlInput.value = d.url;
+      }catch{}
+    }
+    saveVideoUrlBtn.addEventListener('click', async ()=>{
+      const url = videoUrlInput.value.trim();
+      if(!url) return;
+      saveVideoUrlBtn.disabled = true;
+      try{
+        const r = await fetch('/video-url', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({url})
+        });
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        addMsg('assistant', `<span class="muted">Saved video URL.</span>`);
+      }catch(e){
+        addMsg('assistant', `<span class="muted">Failed to save video URL: ${String(e)}</span>`);
+      }finally{
+        saveVideoUrlBtn.disabled = false;
+      }
+    });
+
+    // boot
+    loadVideoUrl();
+    addMsg('assistant', 'Hi! Ask a question about the video and I’ll pull the most relevant frames and a timestamped link.');
+  </script>
+</body>
+</html>

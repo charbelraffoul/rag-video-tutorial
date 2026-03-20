@@ -1,0 +1,43 @@
+# Secrets — never commit these
+.env
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Local data files (large / personal)
+audio.wav
+*.mp4
+*.mp3
+*.mov
+transcript.txt
+transcript_segments.jsonl
+video_manifest.jsonl
+scenes.json
+
+# Scene frame images (generated, can be regenerated)
+scene_frames/
+
+# Wheels folder (local pip cache)
+wheels/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
