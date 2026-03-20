@@ -1,44 +1,57 @@
 # 1_transcribe.py
-import whisper, json, os
+import argparse, whisper, json, os
 from moviepy.video.io.VideoFileClip import VideoFileClip
 
-VIDEO_PATH      = r"C:\Users\charb\Downloads\video_rag_train.mp4"
-AUDIO_OUTPUT    = "audio.wav"
-SEGMENTS_JSONL  = "transcript_segments.jsonl"   # <- per-segment with timestamps
-FULL_TXT        = "transcript.txt"
 
 def extract_audio(video_path: str, out_audio: str):
     clip = VideoFileClip(video_path)
     clip.audio.write_audiofile(out_audio, fps=16000, codec='pcm_s16le')
     clip.close()
 
-def transcribe(audio_path: str):
+
+def transcribe(audio_path: str, model_size: str):
     print("Loading Whisper model…")
-    model = whisper.load_model("base")
+    model = whisper.load_model(model_size)
     print(f"Transcribing {audio_path}…")
     result = model.transcribe(audio_path, fp16=False)
     return result
 
-def save_outputs(result):
-    # full text (optional)
-    with open(FULL_TXT, "w", encoding="utf-8") as f:
+
+def save_outputs(result, segments_jsonl: str, full_txt: str):
+    with open(full_txt, "w", encoding="utf-8") as f:
         f.write(result["text"].strip())
 
-    # segments JSONL (start, end, text)
-    with open(SEGMENTS_JSONL, "w", encoding="utf-8") as f:
+    with open(segments_jsonl, "w", encoding="utf-8") as f:
         for seg in result["segments"]:
             out = {"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
             f.write(json.dumps(out, ensure_ascii=False) + "\n")
-    print(f"Wrote {SEGMENTS_JSONL} and {FULL_TXT}")
+    print(f"Wrote {segments_jsonl} and {full_txt}")
+
 
 def main():
-    if not os.path.exists(AUDIO_OUTPUT):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video-path",  required=True, help="Path to the input video file")
+    parser.add_argument("--video-id",    default=None,  help="Used to auto-name output files (optional)")
+    parser.add_argument("--audio-out",   default=None,  help="Where to write the extracted audio")
+    parser.add_argument("--segments",    default=None,  help="Output JSONL with timestamped segments")
+    parser.add_argument("--transcript",  default=None,  help="Output plain-text transcript")
+    parser.add_argument("--model",       default="base", help="Whisper model size (tiny/base/small/medium/large)")
+    args = parser.parse_args()
+
+    vid = args.video_id
+    audio_out  = args.audio_out  or (f"audio_{vid}.wav"                    if vid else "audio.wav")
+    segments   = args.segments   or (f"transcript_segments_{vid}.jsonl"    if vid else "transcript_segments.jsonl")
+    transcript = args.transcript or (f"transcript_{vid}.txt"               if vid else "transcript.txt")
+
+    if not os.path.exists(audio_out):
         print("Extracting audio from video…")
-        extract_audio(VIDEO_PATH, AUDIO_OUTPUT)
+        extract_audio(args.video_path, audio_out)
     else:
-        print(f"{AUDIO_OUTPUT} already exists, skipping extraction.")
-    res = transcribe(AUDIO_OUTPUT)
-    save_outputs(res)
+        print(f"{audio_out} already exists, skipping extraction.")
+
+    res = transcribe(audio_out, args.model)
+    save_outputs(res, segments, transcript)
+
 
 if __name__ == "__main__":
     main()

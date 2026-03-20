@@ -37,6 +37,7 @@
     .card .body{padding:10px; display:flex; flex-direction:column; gap:8px}
     .meta{display:flex; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--muted)}
     .chip{background:var(--chip); padding:2px 8px; border-radius:999px; border:1px solid var(--border)}
+    .chip.video{background:#1a2e1a; border-color:#2e5c2e; color:#7ec87e}
     .actions{display:flex; gap:8px; margin-top:6px}
     .btn{
       appearance:none; border:1px solid var(--border); background:#1b2432; color:var(--text);
@@ -57,6 +58,9 @@
     a{color:var(--accent); text-decoration:none}
     a:hover{text-decoration:underline}
     .small{font-size:12px}
+    .video-list{display:flex; flex-direction:column; gap:6px; margin-bottom:12px}
+    .video-row{display:flex; gap:8px; align-items:center; font-size:13px}
+    .video-row a{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   </style>
 </head>
 <body>
@@ -64,13 +68,20 @@
     <h1>RAG Video QA</h1>
     <details class="settings">
       <summary>Settings</summary>
-      <div style="margin-top:10px; background:var(--panel); padding:10px; border:1px solid var(--border); border-radius:10px; min-width:320px;">
-        <label class="small muted">Video URL (YouTube recommended)</label>
-        <div class="row" style="margin-top:6px">
-          <input id="videoUrlInput" type="url" placeholder="https://www.youtube.com/watch?v=..." />
-          <button class="btn" id="saveVideoUrlBtn">Save</button>
+      <div style="margin-top:10px; background:var(--panel); padding:12px; border:1px solid var(--border); border-radius:10px; min-width:360px;">
+
+        <div class="small muted" style="margin-bottom:6px">Saved videos</div>
+        <div id="videoList" class="video-list">
+          <span class="small muted">Loading…</span>
         </div>
-        <p class="small muted" style="margin:8px 0 0">This is stored in Weaviate (class <code>VideoMeta</code>).</p>
+
+        <div class="small muted" style="margin-bottom:6px">Add / update video</div>
+        <div style="display:flex; flex-direction:column; gap:6px">
+          <input id="videoIdInput"  type="text" placeholder="video-id  (e.g. revit-2024)" />
+          <input id="videoUrlInput" type="url"  placeholder="https://www.youtube.com/watch?v=…" />
+          <button class="btn" id="saveVideoUrlBtn" style="align-self:flex-start">Save</button>
+        </div>
+        <p class="small muted" style="margin:8px 0 0">Stored in Weaviate (<code>VideoMeta</code>). One entry per video.</p>
       </div>
     </details>
   </header>
@@ -81,7 +92,6 @@
     <div class="footer">
       <div class="panel">
         <input id="q" type="text" placeholder="Ask about the video…" class="grow" />
-        <input id="limit" type="number" min="1" max="20" value="5" title="Top K" style="width:80px" />
         <button id="askBtn" class="btn primary">Ask</button>
       </div>
       <div class="small muted" style="padding:6px 6px 0">Tip: press Enter to send. Sources include image thumbnails and timestamped video links.</div>
@@ -89,11 +99,14 @@
   </main>
 
   <script>
-    const chat = document.getElementById('chat');
-    const q    = document.getElementById('q');
-    const askBtn = document.getElementById('askBtn');
-    const limitEl = document.getElementById('limit');
-    const videoUrlInput = document.getElementById('videoUrlInput');
+    const chat    = document.getElementById('chat');
+    const q       = document.getElementById('q');
+    const askBtn  = document.getElementById('askBtn');
+    const limitEl = { value: 5 };
+
+    const videoList      = document.getElementById('videoList');
+    const videoIdInput   = document.getElementById('videoIdInput');
+    const videoUrlInput  = document.getElementById('videoUrlInput');
     const saveVideoUrlBtn = document.getElementById('saveVideoUrlBtn');
 
     function addMsg(role, html){
@@ -134,6 +147,7 @@
           <span class="chip">sim: ${sim}</span>
           <span class="chip">scene: ${h.scene_id ?? '-'}</span>
           <span class="chip">${mm}:${ss}</span>
+          ${h.video_id ? `<span class="chip video">${esc(h.video_id)}</span>` : ''}
         `;
         body.appendChild(meta);
 
@@ -152,7 +166,6 @@
           actions.appendChild(aVid);
         }
         body.appendChild(actions);
-
         card.appendChild(body);
         wrap.appendChild(card);
       });
@@ -197,36 +210,63 @@
       if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); ask(); }
     });
 
-    async function loadVideoUrl(){
+    // ── Video management ──────────────────────────────────────────────────────
+
+    async function loadVideos(){
       try{
         const r = await fetch('/video-url');
         if(!r.ok) return;
         const d = await r.json();
-        if(d && d.url) videoUrlInput.value = d.url;
+        const videos = d.videos || [];
+        videoList.innerHTML = '';
+        if(videos.length === 0){
+          videoList.innerHTML = '<span class="small muted">No videos saved yet.</span>';
+          return;
+        }
+        videos.forEach(v => {
+          const row = document.createElement('div');
+          row.className = 'video-row';
+          const id  = document.createElement('span');
+          id.className = 'chip video small';
+          id.textContent = v.video_id || '(no id)';
+          const a = document.createElement('a');
+          a.href = v.url || '#'; a.target = '_blank';
+          a.textContent = (v.url || '').replace(/^https?:\/\//, '');
+          row.appendChild(id);
+          row.appendChild(a);
+          videoList.appendChild(row);
+        });
       }catch{}
     }
+
     saveVideoUrlBtn.addEventListener('click', async ()=>{
-      const url = videoUrlInput.value.trim();
-      if(!url) return;
+      const video_id = videoIdInput.value.trim();
+      const url      = videoUrlInput.value.trim();
+      if(!video_id || !url){
+        addMsg('assistant', '<span class="muted">Please enter both a video ID and a URL.</span>');
+        return;
+      }
       saveVideoUrlBtn.disabled = true;
       try{
         const r = await fetch('/video-url', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({url})
+          body: JSON.stringify({video_id, url})
         });
         if(!r.ok) throw new Error('HTTP '+r.status);
-        addMsg('assistant', `<span class="muted">Saved video URL.</span>`);
+        addMsg('assistant', `<span class="muted">Saved <strong>${esc(video_id)}</strong>.</span>`);
+        videoIdInput.value = ''; videoUrlInput.value = '';
+        await loadVideos();
       }catch(e){
-        addMsg('assistant', `<span class="muted">Failed to save video URL: ${String(e)}</span>`);
+        addMsg('assistant', `<span class="muted">Failed to save: ${esc(String(e))}</span>`);
       }finally{
         saveVideoUrlBtn.disabled = false;
       }
     });
 
     // boot
-    loadVideoUrl();
-    addMsg('assistant', 'Hi! Ask a question about the video and I’ll pull the most relevant frames and a timestamped link.');
+    loadVideos();
+    addMsg('assistant', 'Hi! Ask a question about the video and I\'ll pull the most relevant frames and a timestamped link.');
   </script>
 </body>
 </html>

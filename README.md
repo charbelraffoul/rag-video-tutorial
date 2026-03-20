@@ -150,10 +150,10 @@ python 1_transcribe.py
 python 2_scenes.py
 
 # Step 3 — Align transcript to scenes and upload to Weaviate
-python 3_align_and_upload.py
+python 3_align_and_upload.py --video-id your-video-slug
 
 # Step 4 — Embed scenes with Ollama and store vectors
-python 4_embed.py
+python 4_embed.py --video-id your-video-slug
 ```
 
 Each step builds on the previous one. After step 4, your data is in Weaviate and ready to query.
