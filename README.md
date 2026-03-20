@@ -10,18 +10,18 @@ Ask questions about a video tutorial and get answers with **exact timestamps** a
 Video file
     │
     ▼
-1_transcribe_timestamps.py   — Whisper transcribes audio → transcript_segments.jsonl
+1_transcribe.py              — Whisper transcribes audio → transcript_segments.jsonl
     │
     ▼
 2_scenes.py                  — OpenCV detects scene changes (SSIM) → scenes.json
                                Saves a representative frame per scene → scene_frames/
     │
     ▼
-3_align_transcript_to_scenes.py  — Merges Whisper segments into each scene's time window
-                                   Uploads Scene objects to Weaviate
+3_align_and_upload.py        — Merges Whisper segments into each scene's time window
+                               Uploads Scene objects to Weaviate
     │
     ▼
-backfill_vectors_ollama.py   — Embeds each scene's text with nomic-embed-text (Ollama)
+4_embed.py                   — Embeds each scene's text with nomic-embed-text (Ollama)
                                Uploads SceneVec objects to Weaviate (HNSW cosine index)
     │
     ▼
@@ -88,10 +88,10 @@ python 1_transcribe_timestamps.py
 python 2_scenes.py
 
 # Step 3 — align transcript to scenes and upload to Weaviate
-python 3_align_transcript_to_scenes.py
+python 3_align_and_upload.py
 
 # Step 4 — embed scenes and store vectors
-python backfill_vectors_ollama.py
+python 4_embed.py
 ```
 
 ---
@@ -121,10 +121,10 @@ python rag_ask.py "How do I connect a column to a level?" --open 3 --open-video 
 ## Project structure
 
 ```
-├── 1_transcribe_timestamps.py   # Whisper transcription
+├── 1_transcribe.py              # Whisper transcription
 ├── 2_scenes.py                  # Scene detection + frame extraction
-├── 3_align_transcript_to_scenes.py  # Transcript → scene alignment + Weaviate upload
-├── backfill_vectors_ollama.py   # Embed scenes with Ollama → Weaviate
+├── 3_align_and_upload.py        # Transcript → scene alignment + Weaviate upload
+├── 4_embed.py                   # Embed scenes with Ollama → Weaviate
 ├── rag_ask.py                   # CLI query tool
 ├── rag_server.py                # FastAPI server
 ├── web/index.html               # Chat UI
