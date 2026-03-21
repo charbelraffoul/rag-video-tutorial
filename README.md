@@ -1,4 +1,4 @@
-# Video RAG
+# Scene-Aware Video RAG
 
 > Ask questions about a video tutorial — get precise answers with **scene thumbnails** and **exact timestamps**, all running locally on your machine.
 
@@ -8,13 +8,13 @@ Built with Whisper, OpenCV, Ollama, and Weaviate. No cloud APIs required after s
 
 ## What it does
 
-Most RAG systems split text into fixed-size chunks. This understands the **visual structure** of a video.
+Most RAG systems split text into fixed-size chunks. This one understands the **visual structure** of a video.
 
 It detects every time the screen changes (a new tool opens, a panel switches, a step begins), treats each visual change as a meaningful scene, and aligns the spoken transcript to that scene. When you ask a question, it finds the most relevant scene and tells you exactly where in the video to look.
 
 **Example:**
 
-> _"How do I connect a column to a level?"_
+> *"How do I connect a column to a level?"*
 
 The system returns:
 
@@ -29,67 +29,67 @@ Multiple videos are supported — index as many as you want and query across all
 ## How it works
 
 ```
- Your video
-     │
-     ▼
- 1_transcribe.py
- ─────────────────────────────────────────────────────────────────
- Whisper listens to the audio and produces a transcript with
- word-level timestamps. Every sentence is tagged with start/end
- times so we know exactly when it was spoken.
-     │
-     ▼
- 2_scenes.py
- ─────────────────────────────────────────────────────────────────
- OpenCV scans the video frame by frame and measures how different
- each frame is from the previous one (SSIM). When the difference
- crosses a threshold, a new scene begins. One representative
- frame is saved per scene as a thumbnail.
-     │
-     ▼
- 3_align_and_upload.py
- ─────────────────────────────────────────────────────────────────
- Each Whisper segment is matched to the scene it falls inside
- (by timestamp). The full spoken text for each scene is assembled
- and uploaded to Weaviate as a Scene object, tagged with a
- video_id. The video's YouTube URL is saved here too, enabling
- timestamped links in the UI.
-     │
-     ▼
- 4_embed.py
- ─────────────────────────────────────────────────────────────────
- Each scene's text is sent to Ollama (nomic-embed-text) which
- converts it into a 768-dimensional vector — a point in space
- where semantically similar text lands close together.
- These vectors are stored in Weaviate's HNSW index.
-     │
-     ▼
- rag_server.py
- ─────────────────────────────────────────────────────────────────
- At query time, your question is embedded with the same model.
- Weaviate finds the closest scene vectors (cosine similarity).
- Neighboring scenes are also fetched to capture procedural steps
- that follow problem-description scenes.
- The top results are passed to a local LLM (llama3.2) which
- synthesizes a concise answer.
- For timestamps, each segment within the winning scene is
- re-embedded and the one most similar to your question is chosen
- — giving sub-scene precision.
+Your video
+    │
+    ▼
+1_transcribe.py
+────────────────────────────────────────────────────────────────
+Whisper listens to the audio and produces a transcript with
+word-level timestamps. Every sentence is tagged with start/end
+times so we know exactly when it was spoken.
+    │
+    ▼
+2_scenes.py
+────────────────────────────────────────────────────────────────
+OpenCV scans the video frame by frame and measures how different
+each frame is from the previous one (SSIM). When the difference
+crosses a threshold, a new scene begins. One representative
+frame is saved per scene as a thumbnail.
+    │
+    ▼
+3_align_and_upload.py
+────────────────────────────────────────────────────────────────
+Each Whisper segment is matched to the scene it falls inside
+(by timestamp). The full spoken text for each scene is assembled
+and uploaded to Weaviate as a Scene object, tagged with a
+video_id. The video's YouTube URL is saved here too, enabling
+timestamped links in the UI.
+    │
+    ▼
+4_embed.py
+────────────────────────────────────────────────────────────────
+Each scene's text is sent to Ollama (nomic-embed-text) which
+converts it into a 768-dimensional vector — a point in space
+where semantically similar text lands close together.
+These vectors are stored in Weaviate's HNSW index.
+    │
+    ▼
+rag_server.py
+────────────────────────────────────────────────────────────────
+At query time, your question is embedded with the same model.
+Weaviate finds the closest scene vectors (cosine similarity).
+Neighboring scenes are also fetched to capture procedural steps
+that follow problem-description scenes.
+The top results are passed to a local LLM (llama3.2) which
+synthesizes a concise answer.
+For timestamps, each segment within the winning scene is
+re-embedded and the one most similar to your question is chosen
+— giving sub-scene precision.
 ```
 
 ---
 
 ## Tech stack
 
-| Component                                         | What it does                                      |
-| ------------------------------------------------- | ------------------------------------------------- |
-| [Whisper](https://github.com/openai/whisper)      | Speech-to-text with word-level timestamps         |
-| OpenCV (SSIM)                                     | Visual scene change detection                     |
-| [Ollama](https://ollama.com) — `nomic-embed-text` | Converts text into semantic vectors               |
-| [Ollama](https://ollama.com) — `llama3.2`         | Generates the final answer from retrieved context |
-| [Weaviate](https://weaviate.io)                   | Vector database with HNSW cosine index            |
-| FastAPI + Uvicorn                                 | REST API and web server                           |
-| Vanilla JS                                        | Chat UI in the browser                            |
+| Component | What it does |
+|---|---|
+| [Whisper](https://github.com/openai/whisper) | Speech-to-text with word-level timestamps |
+| OpenCV (SSIM) | Visual scene change detection |
+| [Ollama](https://ollama.com) — `nomic-embed-text` | Converts text into semantic vectors |
+| [Ollama](https://ollama.com) — `llama3.2` | Generates the final answer from retrieved context |
+| [Weaviate](https://weaviate.io) | Vector database with HNSW cosine index |
+| FastAPI + Uvicorn | REST API and web server |
+| Vanilla JS | Chat UI in the browser |
 
 Everything runs **locally**. Once the video is transcribed, no data leaves your machine.
 
@@ -113,8 +113,8 @@ ollama pull llama3.2
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/charbelraffoul/rag-video-tutorial.git
-cd rag-video-tutorial
+git clone https://github.com/charbelraffoul/scene-aware-video-rag.git
+cd scene-aware-video-rag
 ```
 
 **2. Install Python dependencies**
@@ -183,7 +183,7 @@ Open [http://localhost:8000](http://localhost:8000) in your browser.
 - Click **Open video @ time** to jump to the exact second in the YouTube video
 - Click **Open image** to view the full-resolution frame
 
-The **Settings** panel (top right) lets you manage saved video URLs manually if needed.
+Use the **Settings** panel (top right) to manage saved video URLs.
 
 ### Command line
 
@@ -214,7 +214,7 @@ All videos share the same Weaviate index. Queries automatically search across al
 ## Project structure
 
 ```
-rag-video-tutorial/
+scene-aware-video-rag/
 │
 ├── 1_transcribe.py          # Whisper transcription with timestamps
 ├── 2_scenes.py              # Scene detection + frame extraction
@@ -246,3 +246,11 @@ A scene can be 30–90 seconds long. Instead of linking to the start of the scen
 6. Return the timestamp of the best-matching segment
 
 This means the video link lands within a few seconds of the actual answer.
+
+---
+
+## Limitations
+
+- **Text-only search.** Embeddings are generated from transcript text only — not from video frames. If something is shown on screen but never verbally described, it won't be retrievable. Extending this to frame embeddings (e.g. CLIP) would enable visual-only search.
+- **Retrieval bias.** Problem-description scenes tend to rank higher than solution scenes because they share more vocabulary with how-to questions. Neighboring scenes are fetched to compensate, but a cross-encoder re-ranker would handle this more precisely.
+- **Small answer model.** llama3.2 at 3B parameters occasionally hedges or hallucinates when context is ambiguous. A larger local model (llama3.1:8b) gives noticeably better answers at the cost of speed.
